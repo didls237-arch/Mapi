@@ -1,0 +1,42 @@
+{
+  "name": "discord-ai-analysis-bot",
+  "version": "1.1.0",
+  "private": true,
+  "description": "Discord AI analysis bot with OpenClaw gateway orchestration",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "register:commands": "tsx src/scripts/registerCommands.ts",
+    "bootstrap:guild": "tsx src/scripts/bootstrapGuild.ts",
+    "migrate": "tsx src/scripts/migrate.ts",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "discord.js": "^14.21.0",
+    "dotenv": "^17.3.1",
+    "pg": "^8.20.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.18.0",
+    "@typescript-eslint/eslint-plugin": "^8.40.0",
+    "@typescript-eslint/parser": "^8.40.0",
+    "eslint": "^9.35.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.6.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
