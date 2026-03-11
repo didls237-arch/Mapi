@@ -1,4 +1,4 @@
-import { Message, ThreadChannel } from "discord.js";
+import { ChannelType, Message, TextChannel, ThreadChannel } from "discord.js";
 import { config } from "../config.js";
 import { getThreadState, insertAuditLog, upsertThreadState } from "../repositories/stateRepository.js";
 import { discussionTurn, startDiscussion } from "./openclawClient.js";
@@ -50,20 +50,52 @@ function splitForDiscord(content: string, max = 1900): string[] {
   return parts;
 }
 
+/**
+ * 매크로 시나리오 채널에서 일반 메시지에 응답.
+ * 스레드 안이면 기존 discussion 이어가고,
+ * 일반 텍스트 채널이면 자동으로 스레드 생성 후 응답.
+ */
 export async function handleMacroScenarioMessage(input: {
   message: Message;
   actorUserId: string;
 }): Promise<void> {
   const { message, actorUserId } = input;
   if (!message.guildId) return;
-  if (!message.channel.isThread()) return;
-
-  const thread = message.channel as ThreadChannel;
-  if (thread.parentId !== config.MACRO_FORUM_CHANNEL_ID) return;
 
   const userPrompt = compactMessageContent(message);
   if (!userPrompt || userPrompt.trim().length === 0) return;
 
+  // 스레드 안에서 메시지인 경우
+  if (message.channel.isThread()) {
+    const thread = message.channel as ThreadChannel;
+    // macro 채널의 스레드인지 확인
+    if (thread.parentId !== config.MACRO_FORUM_CHANNEL_ID) return;
+
+    await handleInThread(thread, userPrompt, message, actorUserId);
+    return;
+  }
+
+  // 일반 텍스트 채널에서 메시지인 경우
+  if (message.channel.type === ChannelType.GuildText) {
+    if (message.channel.id !== config.MACRO_FORUM_CHANNEL_ID) return;
+
+    // 자동으로 스레드 생성
+    const thread = await message.startThread({
+      name: userPrompt.slice(0, 60) || "매크로 시나리오",
+      autoArchiveDuration: 10080
+    });
+
+    await handleInThread(thread as ThreadChannel, userPrompt, message, actorUserId);
+    return;
+  }
+}
+
+async function handleInThread(
+  thread: ThreadChannel,
+  userPrompt: string,
+  message: Message,
+  actorUserId: string
+): Promise<void> {
   await thread.sendTyping();
 
   let state = await getThreadState(thread.id);
@@ -113,7 +145,7 @@ export async function handleMacroScenarioMessage(input: {
 
   await insertAuditLog({
     event_type: "macro_chat_turn",
-    guild_id: message.guildId,
+    guild_id: message.guildId!,
     actor_user_id: actorUserId,
     details: {
       thread_id: thread.id,

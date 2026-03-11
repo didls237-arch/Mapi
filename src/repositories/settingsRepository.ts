@@ -21,6 +21,18 @@ export async function upsertPersonaStyle(input: {
   );
 }
 
+export async function deletePersonaStyle(input: { guild_id: string; persona: Persona }): Promise<boolean> {
+  const rows = await query<{ deleted: boolean }>(
+    `
+    DELETE FROM persona_styles
+    WHERE guild_id = $1 AND persona = $2
+    RETURNING TRUE AS deleted
+    `,
+    [input.guild_id, input.persona]
+  );
+  return Boolean(rows[0]?.deleted);
+}
+
 export async function getPersonaStyles(guildId: string): Promise<
   Array<{
     persona: Persona;
@@ -57,6 +69,38 @@ export async function addSystemRule(input: {
     `,
     [input.guild_id, input.rule_text, input.actor_user_id]
   );
+}
+
+export async function updateSystemRule(input: {
+  guild_id: string;
+  id: number;
+  rule_text: string;
+}): Promise<boolean> {
+  const rows = await query<{ updated: boolean }>(
+    `
+    UPDATE system_rules
+    SET rule_text = $3
+    WHERE guild_id = $1 AND id = $2
+    RETURNING TRUE AS updated
+    `,
+    [input.guild_id, input.id, input.rule_text]
+  );
+  return Boolean(rows[0]?.updated);
+}
+
+export async function deleteSystemRule(input: {
+  guild_id: string;
+  id: number;
+}): Promise<boolean> {
+  const rows = await query<{ deleted: boolean }>(
+    `
+    DELETE FROM system_rules
+    WHERE guild_id = $1 AND id = $2
+    RETURNING TRUE AS deleted
+    `,
+    [input.guild_id, input.id]
+  );
+  return Boolean(rows[0]?.deleted);
 }
 
 export async function listSystemRules(guildId: string): Promise<

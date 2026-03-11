@@ -14,9 +14,12 @@ import {
 } from "../repositories/analysisJobRepository.js";
 import {
   addSystemRule,
+  deletePersonaStyle,
+  deleteSystemRule,
   getPersonaStyles,
-  upsertPersonaStyle,
-  listSystemRules
+  listSystemRules,
+  updateSystemRule,
+  upsertPersonaStyle
 } from "../repositories/settingsRepository.js";
 import {
   getSummaryCheckpoint,
@@ -279,9 +282,7 @@ async function handleAnalyzeCommand(client: Client, message: Message, args: stri
   }
 
   touchCooldown(message.author.id);
-  await message.reply(
-    `${market.toUpperCase()} ${ticker} analysis started. Results will be posted to summary.`
-  );
+  await message.reply(`${market.toUpperCase()} ${ticker} analysis started. Results will be posted to summary.`);
 
   void runAnalysisInBackground({
     client,
@@ -455,70 +456,124 @@ async function handleRolloverCommand(client: Client, message: Message, args: str
 
 async function handleStyleCommand(message: Message, args: string[]): Promise<void> {
   const action = args[0]?.toLowerCase();
-  if (action !== "set") {
-    await message.reply("Usage: !style set <persona> <style>");
-    return;
-  }
 
-  const persona = normalizePersona(args[1] ?? "");
-  const styleText = args.slice(2).join(" ").trim();
+  if (action === "set") {
+    const persona = normalizePersona(args[1] ?? "");
+    const styleText = args.slice(2).join(" ").trim();
 
-  if (!persona || !styleText) {
-    await message.reply("Usage: !style set <persona> <style>");
-    return;
-  }
+    if (!persona || !styleText) {
+      await message.reply("Usage: !style set <persona> <style>");
+      return;
+    }
 
-  await upsertPersonaStyle({
-    guild_id: message.guildId ?? "unknown",
-    persona,
-    style_text: styleText,
-    actor_user_id: message.author.id
-  });
-
-  await insertAuditLog({
-    event_type: "persona_style_upserted",
-    guild_id: message.guildId ?? "unknown",
-    actor_user_id: message.author.id,
-    details: {
+    await upsertPersonaStyle({
+      guild_id: message.guildId ?? "unknown",
       persona,
       style_text: styleText,
-      source: "text_command"
-    }
-  });
+      actor_user_id: message.author.id
+    });
 
-  await message.reply(`Style saved for ${persona}: ${styleText}`);
+    await insertAuditLog({
+      event_type: "persona_style_upserted",
+      guild_id: message.guildId ?? "unknown",
+      actor_user_id: message.author.id,
+      details: {
+        persona,
+        style_text: styleText,
+        source: "text_command"
+      }
+    });
+
+    await message.reply(`Style saved for ${persona}: ${styleText}`);
+    return;
+  }
+
+  if (action === "clear") {
+    const persona = normalizePersona(args[1] ?? "");
+    if (!persona) {
+      await message.reply("Usage: !style clear <persona>");
+      return;
+    }
+
+    const deleted = await deletePersonaStyle({
+      guild_id: message.guildId ?? "unknown",
+      persona
+    });
+
+    await message.reply(deleted ? `Style cleared for ${persona}.` : `No saved style found for ${persona}.`);
+    return;
+  }
+
+  await message.reply("Usage: !style set <persona> <style> | !style clear <persona>");
 }
 
 async function handleSystemRuleCommand(message: Message, args: string[]): Promise<void> {
   const action = args[0]?.toLowerCase();
-  if (action !== "add") {
-    await message.reply("Usage: !systemrule add <text>");
-    return;
-  }
 
-  const ruleText = args.slice(1).join(" ").trim();
-  if (!ruleText) {
-    await message.reply("Usage: !systemrule add <text>");
-    return;
-  }
-
-  await addSystemRule({
-    guild_id: message.guildId ?? "unknown",
-    rule_text: ruleText,
-    actor_user_id: message.author.id
-  });
-
-  await insertAuditLog({
-    event_type: "system_rule_added",
-    guild_id: message.guildId ?? "unknown",
-    actor_user_id: message.author.id,
-    details: {
-      rule_text: ruleText,
-      source: "text_command"
+  if (action === "add") {
+    const ruleText = args.slice(1).join(" ").trim();
+    if (!ruleText) {
+      await message.reply("Usage: !systemrule add <text>");
+      return;
     }
-  });
 
-  await message.reply(`System rule added: ${ruleText}`);
+    await addSystemRule({
+      guild_id: message.guildId ?? "unknown",
+      rule_text: ruleText,
+      actor_user_id: message.author.id
+    });
+
+    await insertAuditLog({
+      event_type: "system_rule_added",
+      guild_id: message.guildId ?? "unknown",
+      actor_user_id: message.author.id,
+      details: {
+        rule_text: ruleText,
+        source: "text_command"
+      }
+    });
+
+    await message.reply(`System rule added: ${ruleText}`);
+    return;
+  }
+
+  if (action === "update") {
+    const id = Number(args[1]);
+    const ruleText = args.slice(2).join(" ").trim();
+    if (!Number.isInteger(id) || !ruleText) {
+      await message.reply("Usage: !systemrule update <id> <text>");
+      return;
+    }
+
+    const updated = await updateSystemRule({
+      guild_id: message.guildId ?? "unknown",
+      id,
+      rule_text: ruleText
+    });
+
+    await message.reply(updated ? `System rule ${id} updated.` : `System rule ${id} not found.`);
+    return;
+  }
+
+  if (action === "delete") {
+    const id = Number(args[1]);
+    if (!Number.isInteger(id)) {
+      await message.reply("Usage: !systemrule delete <id>");
+      return;
+    }
+
+    const deleted = await deleteSystemRule({
+      guild_id: message.guildId ?? "unknown",
+      id
+    });
+
+    await message.reply(deleted ? `System rule ${id} deleted.` : `System rule ${id} not found.`);
+    return;
+  }
+
+  await message.reply(
+    "Usage: !systemrule add <text> | !systemrule update <id> <text> | !systemrule delete <id>"
+  );
 }
 
 async function handlePersonaCommand(message: Message, args: string[]): Promise<void> {
@@ -535,7 +590,7 @@ async function handlePersonaCommand(message: Message, args: string[]): Promise<v
 
   const styleMap = new Map(styles.map((row) => [row.persona, row.style_text]));
   const personaLines = PERSONAS.map((persona) => `- ${persona}: ${styleMap.get(persona) ?? "(default)"}`);
-  const ruleLines = rules.length > 0 ? rules.map((row, index) => `${index + 1}. ${row.rule_text}`) : ["(none)"];
+  const ruleLines = rules.length > 0 ? rules.map((row) => `${row.id}. ${row.rule_text}`) : ["(none)"];
 
   await message.reply(
     [
@@ -573,7 +628,10 @@ async function handleHelpCommand(message: Message): Promise<void> {
       "!summary <macro|kor|ex|coin> [thread_id]",
       "!rollover <thread_id>",
       "!style set <persona> <style>",
+      "!style clear <persona>",
       "!systemrule add <text>",
+      "!systemrule update <id> <text>",
+      "!systemrule delete <id>",
       "!persona view",
       "!status",
       "!help"
