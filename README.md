@@ -1,99 +1,94 @@
-# Discord AI 분석 서버 v1.1
+﻿# Discord AI analysis bot
 
-`Discord -> Bot(Node.js) -> OpenClaw -> 모델` 구조로 동작하는 분석 서버입니다.
+This project runs a Discord analysis server with `forum + thread` workflows and can talk to OpenClaw in two ways:
 
-## 핵심 기능
+- `OPENCLAW_TRANSPORT=http`: call an HTTP gateway
+- `OPENCLAW_TRANSPORT=cli`: execute a local OpenClaw bridge command
 
-- Slash commands
-  - `/analyze market:{kor|ex|coin} ticker:{string}`
-  - `/summary scope:{macro|kor|ex|coin} thread_id:{optional}`
-  - `/rollover thread_id:{id}`
-  - `/status`
-- 15턴 자동 토론 (턴당 1메시지)
-  - 1~5: 탐색 단계
-  - 6~10: 검증 및 반박 단계
-  - 11~15: 수렴 및 합의 단계
-- OpenClaw API 재시도(backoff) + 턴 실패 스킵 옵션
-- 분석 도중 장애 시 `analysis_jobs` 기반 재개 지원
-- Macro Scenario 관리자 메시지 자동 응답/공유
-- Summary 체크포인트 기반 증분 요약
-- 최종 PNG 리포트 생성 및 Summary 채널 업로드
-- PostgreSQL 영속 저장
-- Guild 자동 부트스트랩 CLI (`bootstrap:guild`)
+## Text commands
 
-## 보안 기본 정책
+- `!analyze <kor|ex|coin> <ticker>`
+- `!summary <macro|kor|ex|coin> [thread_id]`
+- `!rollover <thread_id>`
+- `!status`
+- `!help`
 
-- `.env`는 git 추적 제외 (`.gitignore` 포함)
-- `Create Instant Invite`는 관리자 역할만 허용
-- 참가자는 `question` 채널에서만 쓰기 가능
+Slash commands can still exist, but text commands are now the primary workflow.
 
-## 빠른 시작
-
-1. 환경 파일 생성
+## Quick start
 
 ```bash
 cp .env.example .env
-```
-
-2. 최소 입력
-
-- `DISCORD_TOKEN`
-- `DISCORD_GUILD_ID`
-
-3. 의존성 설치
-
-```bash
 npm install
 ```
 
-4. 길드 구조 자동 생성
+Fill at least these values in `.env`:
+
+- `DISCORD_TOKEN`
+- `DISCORD_CLIENT_ID`
+- `DISCORD_GUILD_ID`
+- `PG_CONNECTION_STRING`
+- `OPENCLAW_TRANSPORT`
+
+Then run:
 
 ```bash
 npm run bootstrap:guild
-```
-
-5. 추가 환경값 입력
-
-- `DISCORD_CLIENT_ID`
-- `OPENCLAW_BASE_URL`
-- `OPENCLAW_OAUTH_BEARER_TOKEN`
-- `PG_CONNECTION_STRING`
-
-6. DB 마이그레이션
-
-```bash
 npm run migrate
+npm run build
+npm run start
 ```
 
-7. 슬래시 명령 등록
+Run `npm run register:commands` only if you still want slash commands registered.
 
-```bash
-npm run register:commands
+## OpenClaw CLI mode
+
+Set:
+
+```env
+OPENCLAW_TRANSPORT=cli
+OPENCLAW_CLI_COMMAND=/absolute/path/to/openclaw-discord-bridge
+OPENCLAW_CLI_ARGS_JSON=[]
+OPENCLAW_CLI_CWD=/home/mapi
 ```
 
-8. 실행
+The bot sends one JSON request to the bridge over stdin and expects one JSON object back on stdout.
 
-```bash
-npm run dev
+Request shape:
+
+```json
+{
+  "action": "start_discussion | discussion_turn | final_report",
+  "discussion_id": "optional-string",
+  "payload": {}
+}
 ```
 
-## Bootstrap 생성 구조
+Expected stdout examples:
 
-- `Macro Scenario`
-  - Forum: `macro-scenario`
-  - Text: `summary`, `question`
-- `Kor.Analysis`
-  - Forum: `kor-analysis`
-  - Text: `summary`, `question`
-- `Ex.Analysis`
-  - Forum: `ex-analysis`
-  - Text: `summary`, `question`
-- `Coin Analysis`
-  - Forum: `coin-analysis`
-  - Text: `summary`, `question`
-
-## 테스트
-
-```bash
-npm test
+```json
+{ "discussion_id": "abc-123" }
 ```
+
+```json
+{ "content": "turn output", "citations": [], "risk_score": 3 }
+```
+
+```json
+{
+  "report_id": "rpt-1",
+  "verdict": "WAIT",
+  "confidence": 82,
+  "entry": "entry text",
+  "tp": "tp text",
+  "sl": "sl text",
+  "consensus": "final summary",
+  "persona_comments": [
+    { "persona": "technical analyst", "opinion": "...", "stance": "찬성" }
+  ],
+  "sources": ["source-1", "source-2"],
+  "created_at": "2026-03-11T00:00:00.000Z"
+}
+```
+
+CLI mode is the right fit when OpenClaw is already operated as a local CLI or Telegram-driven workflow rather than a REST API service.

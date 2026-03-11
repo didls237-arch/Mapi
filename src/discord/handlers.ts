@@ -1,4 +1,4 @@
-import {
+﻿import {
   ChannelType,
   ChatInputCommandInteraction,
   Client,
@@ -104,9 +104,9 @@ async function notifyAnalysisFailure(input: {
   errorText: string;
 }): Promise<{ summaryPosted: boolean; dmPosted: boolean }> {
   const baseMessage =
-    `분석 작업 중 오류가 발생했습니다.\n` +
+    `遺꾩꽍 ?묒뾽 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.\n` +
     `market=${input.market}, ticker=${input.ticker.toUpperCase()}\n` +
-    `오류: ${input.errorText}`;
+    `?ㅻ쪟: ${input.errorText}`;
 
   let summaryPosted = false;
   let dmPosted = false;
@@ -122,7 +122,7 @@ async function notifyAnalysisFailure(input: {
     try {
       const actor = await input.client.users.fetch(input.actorUserId);
       await actor.send(
-        `[Discord AI Analysis Bot] ${input.market.toUpperCase()} ${input.ticker.toUpperCase()} 분석 실패\n` +
+        `[Discord AI Analysis Bot] ${input.market.toUpperCase()} ${input.ticker.toUpperCase()} 遺꾩꽍 ?ㅽ뙣\n` +
           `${input.errorText}`
       );
       dmPosted = true;
@@ -195,7 +195,7 @@ export async function handleAnalyze(
 ): Promise<void> {
   if (!ensureAdmin(interaction)) {
     await interaction.reply({
-      content: "관리자만 실행할 수 있습니다.",
+      content: "愿由ъ옄留??ㅽ뻾?????덉뒿?덈떎.",
       ephemeral: true
     });
     return;
@@ -204,7 +204,7 @@ export async function handleAnalyze(
   const cooldown = isInCooldown(interaction.user.id);
   if (cooldown.blocked) {
     await interaction.reply({
-      content: `명령 쿨다운 중입니다. ${cooldown.leftSec}초 후 다시 시도하세요.`,
+      content: `紐낅졊 荑⑤떎??以묒엯?덈떎. ${cooldown.leftSec}珥????ㅼ떆 ?쒕룄?섏꽭??`,
       ephemeral: true
     });
     return;
@@ -215,7 +215,7 @@ export async function handleAnalyze(
 
   if (!isTickerValid(ticker)) {
     await interaction.reply({
-      content: "티커 형식이 올바르지 않습니다. (허용: A-Z, 0-9, . _ : / - , 최대 20자)",
+      content: "?곗빱 ?뺤떇???щ컮瑜댁? ?딆뒿?덈떎. (?덉슜: A-Z, 0-9, . _ : / - , 理쒕? 20??",
       ephemeral: true
     });
     return;
@@ -223,13 +223,13 @@ export async function handleAnalyze(
 
   const lockKey = `${interaction.guildId}:${market}:${ticker}`;
   if (runningAnalysis.has(lockKey)) {
-    await interaction.reply({ content: "동일 티커 분석이 이미 진행 중입니다.", ephemeral: true });
+    await interaction.reply({ content: "?숈씪 ?곗빱 遺꾩꽍???대? 吏꾪뻾 以묒엯?덈떎.", ephemeral: true });
     return;
   }
 
   if (activeAnalysisJobs >= config.ANALYSIS_MAX_CONCURRENCY) {
     await interaction.reply({
-      content: `동시 분석 한도(${config.ANALYSIS_MAX_CONCURRENCY})에 도달했습니다. 잠시 후 다시 시도하세요.`,
+      content: `?숈떆 遺꾩꽍 ?쒕룄(${config.ANALYSIS_MAX_CONCURRENCY})???꾨떖?덉뒿?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄?섏꽭??`,
       ephemeral: true
     });
     return;
@@ -238,7 +238,7 @@ export async function handleAnalyze(
   const runningDb = await countRunningJobs(interaction.guildId ?? "unknown");
   if (runningDb >= config.ANALYSIS_MAX_CONCURRENCY) {
     await interaction.reply({
-      content: `DB 기준 동시 분석 한도(${config.ANALYSIS_MAX_CONCURRENCY})에 도달했습니다.`,
+      content: `DB 湲곗? ?숈떆 遺꾩꽍 ?쒕룄(${config.ANALYSIS_MAX_CONCURRENCY})???꾨떖?덉뒿?덈떎.`,
       ephemeral: true
     });
     return;
@@ -251,7 +251,7 @@ export async function handleAnalyze(
   });
   if (existingJob) {
     await interaction.reply({
-      content: `이미 실행 중인 작업이 있습니다. thread_id=${existingJob.discord_thread_id}`,
+      content: `?대? ?ㅽ뻾 以묒씤 ?묒뾽???덉뒿?덈떎. thread_id=${existingJob.discord_thread_id}`,
       ephemeral: true
     });
     return;
@@ -267,7 +267,7 @@ export async function handleAnalyze(
     summaryChannel.type !== ChannelType.GuildText
   ) {
     await interaction.reply({
-      content: "채널 설정이 올바르지 않습니다. .env의 FORUM/SUMMARY 채널 ID를 확인하세요.",
+      content: "梨꾨꼸 ?ㅼ젙???щ컮瑜댁? ?딆뒿?덈떎. .env??FORUM/SUMMARY 梨꾨꼸 ID瑜??뺤씤?섏꽭??",
       ephemeral: true
     });
     return;
@@ -277,8 +277,8 @@ export async function handleAnalyze(
 
   await interaction.reply({
     content:
-      `${market.toUpperCase()} ${ticker} 분석을 시작했습니다. ` +
-      `백그라운드로 진행되며 완료 결과는 Summary 채널에 게시됩니다.`,
+      `${market.toUpperCase()} ${ticker} 遺꾩꽍???쒖옉?덉뒿?덈떎. ` +
+      `諛깃렇?쇱슫?쒕줈 吏꾪뻾?섎ŉ ?꾨즺 寃곌낵??Summary 梨꾨꼸??寃뚯떆?⑸땲??`,
     ephemeral: true
   });
 
@@ -299,7 +299,7 @@ export async function handleSummary(
   interaction: ChatInputCommandInteraction
 ): Promise<void> {
   if (!ensureAdmin(interaction)) {
-    await interaction.reply({ content: "관리자만 실행할 수 있습니다.", ephemeral: true });
+    await interaction.reply({ content: "愿由ъ옄留??ㅽ뻾?????덉뒿?덈떎.", ephemeral: true });
     return;
   }
 
@@ -309,7 +309,7 @@ export async function handleSummary(
 
   if (!thread) {
     await interaction.reply({
-      content: "대상 thread를 찾을 수 없습니다. thread_id를 지정하거나 thread 안에서 실행하세요.",
+      content: "???thread瑜?李얠쓣 ???놁뒿?덈떎. thread_id瑜?吏?뺥븯嫄곕굹 thread ?덉뿉???ㅽ뻾?섏꽭??",
       ephemeral: true
     });
     return;
@@ -324,7 +324,7 @@ export async function handleSummary(
   );
 
   if (lines.length === 0) {
-    await interaction.editReply("요약할 신규 메시지가 없습니다.");
+    await interaction.editReply("?붿빟???좉퇋 硫붿떆吏媛 ?놁뒿?덈떎.");
     return;
   }
 
@@ -338,7 +338,7 @@ export async function handleSummary(
   const summaryCh = await client.channels.fetch(summaryChannelIdByScope(scope));
 
   if (!summaryCh || summaryCh.type !== ChannelType.GuildText) {
-    await interaction.editReply("요약 채널 설정이 올바르지 않습니다.");
+    await interaction.editReply("?붿빟 梨꾨꼸 ?ㅼ젙???щ컮瑜댁? ?딆뒿?덈떎.");
     return;
   }
 
@@ -364,7 +364,7 @@ export async function handleSummary(
     }
   });
 
-  await interaction.editReply(`요약을 생성했습니다. 메시지 ID: ${msg.id}`);
+  await interaction.editReply(`?붿빟???앹꽦?덉뒿?덈떎. 硫붿떆吏 ID: ${msg.id}`);
 }
 
 export async function handleRollover(
@@ -372,14 +372,14 @@ export async function handleRollover(
   interaction: ChatInputCommandInteraction
 ): Promise<void> {
   if (!ensureAdmin(interaction)) {
-    await interaction.reply({ content: "관리자만 실행할 수 있습니다.", ephemeral: true });
+    await interaction.reply({ content: "愿由ъ옄留??ㅽ뻾?????덉뒿?덈떎.", ephemeral: true });
     return;
   }
 
   const threadId = interaction.options.getString("thread_id", true);
   const target = await client.channels.fetch(threadId);
   if (!target || !target.isThread()) {
-    await interaction.reply({ content: "유효한 thread_id가 아닙니다.", ephemeral: true });
+    await interaction.reply({ content: "?좏슚??thread_id媛 ?꾨떃?덈떎.", ephemeral: true });
     return;
   }
 
@@ -387,7 +387,7 @@ export async function handleRollover(
   const parent = thread.parent;
 
   if (!parent || parent.type !== ChannelType.GuildForum) {
-    await interaction.reply({ content: "포럼 스레드만 롤오버할 수 있습니다.", ephemeral: true });
+    await interaction.reply({ content: "?щ읆 ?ㅻ젅?쒕쭔 濡ㅼ삤踰꾪븷 ???덉뒿?덈떎.", ephemeral: true });
     return;
   }
 
@@ -403,20 +403,20 @@ export async function handleRollover(
     thread_id: thread.id,
     mode: "rollover",
     system_rules: [
-      "기존 맥락을 잃지 않게 핵심 사실/결정/리스크를 압축하라.",
-      "칭찬형 문구를 사용하지 말라."
+      "湲곗〈 留λ씫???껋? ?딄쾶 ?듭떖 ?ъ떎/寃곗젙/由ъ뒪?щ? ?뺤텞?섎씪.",
+      "移?갔??臾멸뎄瑜??ъ슜?섏? 留먮씪."
     ]
   });
 
   const compressed = await discussionTurn(discussion.discussion_id, {
-    prompt: "새 스레드 시작용 압축 컨텍스트를 작성하라.",
+    prompt: "???ㅻ젅???쒖옉???뺤텞 而⑦뀓?ㅽ듃瑜??묒꽦?섎씪.",
     context: sliced
   });
 
   const newThreadRaw = await (parent as ForumChannel).threads.create({
     name: `${thread.name} | rollover ${new Date().toLocaleDateString("ko-KR")}`,
     message: {
-      content: "### 압축 컨텍스트\n" + `${compressed.content}\n\n` + `원본 thread: ${thread.id}`
+      content: "### ?뺤텞 而⑦뀓?ㅽ듃\n" + `${compressed.content}\n\n` + `?먮낯 thread: ${thread.id}`
     },
     autoArchiveDuration: 10080
   });
@@ -442,11 +442,12 @@ export async function handleRollover(
     }
   });
 
-  await interaction.editReply(`롤오버 완료: 새 thread ${newThread.id}`);
+  await interaction.editReply(`濡ㅼ삤踰??꾨즺: ??thread ${newThread.id}`);
 }
 
 export async function handleStatus(interaction: ChatInputCommandInteraction): Promise<void> {
   const msg =
+    `openclaw_transport: ${config.OPENCLAW_TRANSPORT}\n` +
     `running_analysis_jobs(in-memory): ${runningAnalysis.size}\n` +
     `active_analysis_jobs: ${activeAnalysisJobs}\n` +
     `max_concurrency: ${config.ANALYSIS_MAX_CONCURRENCY}\n` +
@@ -480,7 +481,7 @@ export async function resumePendingAnalysisJobs(client: Client): Promise<void> {
     if (!threadChannel || !threadChannel.isThread() || !summaryChannel || summaryChannel.type !== ChannelType.GuildText) {
       await markAnalysisJobFailed({
         discord_thread_id: job.discord_thread_id,
-        error: "복구 실패: 스레드 또는 summary 채널을 찾을 수 없음"
+        error: "蹂듦뎄 ?ㅽ뙣: ?ㅻ젅???먮뒗 summary 梨꾨꼸??李얠쓣 ???놁쓬"
       });
       continue;
     }
@@ -517,7 +518,7 @@ export async function resumePendingAnalysisJobs(client: Client): Promise<void> {
           actorUserId: job.actor_user_id,
           market: job.scope,
           ticker: job.ticker,
-          errorText: `자동 복구 작업 실패: ${errorText}`
+          errorText: `?먮룞 蹂듦뎄 ?묒뾽 ?ㅽ뙣: ${errorText}`
         });
       })
       .finally(() => {
@@ -526,3 +527,5 @@ export async function resumePendingAnalysisJobs(client: Client): Promise<void> {
       });
   }
 }
+
+

@@ -1,3 +1,5 @@
+﻿import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { config } from "../config.js";
 import {
   DiscussionStartResponse,
@@ -7,6 +9,12 @@ import {
 } from "../types.js";
 
 const RETRYABLE_STATUS = new Set([408, 409, 425, 429, 500, 502, 503, 504]);
+
+interface CliBridgeRequest {
+  action: "start_discussion" | "discussion_turn" | "final_report";
+  discussion_id?: string;
+  payload: unknown;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,11 +34,31 @@ function isRetryableError(error: unknown): boolean {
     message.includes("AbortError") ||
     message.includes("ECONNRESET") ||
     message.includes("ETIMEDOUT") ||
-    message.includes("fetch failed")
+    message.includes("fetch failed") ||
+    message.includes("timed out") ||
+    message.includes("exited with code")
   );
 }
 
-async function postJson<T>(path: string, payload: unknown): Promise<T> {
+function parseJsonResponse<T>(raw: string): T {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error("OpenClaw CLI returned empty stdout");
+  }
+
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    const firstBrace = trimmed.indexOf("{");
+    const lastBrace = trimmed.lastIndexOf("}");
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)) as T;
+    }
+    throw new Error(`OpenClaw CLI returned non-JSON stdout: ${trimmed.slice(0, 400)}`);
+  }
+}
+
+async function postHttpJson<T>(path: string, payload: unknown): Promise<T> {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= config.OPENCLAW_RETRY_ATTEMPTS; attempt += 1) {
@@ -73,6 +101,83 @@ async function postJson<T>(path: string, payload: unknown): Promise<T> {
   throw new Error(`OpenClaw request failed: ${String(lastError)}`);
 }
 
+function executeCliRequest<T>(request: CliBridgeRequest): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(config.OPENCLAW_CLI_COMMAND, config.OPENCLAW_CLI_ARGS_JSON, {
+      cwd: config.OPENCLAW_CLI_CWD || undefined,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, config.OPENCLAW_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+
+      if (timedOut) {
+        reject(new Error(`OpenClaw CLI timed out after ${config.OPENCLAW_TIMEOUT_MS}ms`));
+        return;
+      }
+
+      if (code !== 0) {
+        reject(
+          new Error(
+            `OpenClaw CLI exited with code ${code}: ${(stderr || stdout).trim().slice(0, 400)}`
+          )
+        );
+        return;
+      }
+
+      try {
+        resolve(parseJsonResponse<T>(stdout));
+      } catch (error) {
+        reject(error);
+      }
+    });
+
+    child.stdin.write(JSON.stringify(request));
+    child.stdin.end();
+  });
+}
+
+async function postCliJson<T>(request: CliBridgeRequest): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= config.OPENCLAW_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await executeCliRequest<T>(request);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= config.OPENCLAW_RETRY_ATTEMPTS || !isRetryableError(error)) {
+        throw error;
+      }
+      await sleep(backoffDelay(attempt));
+    }
+  }
+
+  throw new Error(`OpenClaw CLI request failed: ${String(lastError)}`);
+}
+
 export async function startDiscussion(payload: {
   market: string;
   ticker: string;
@@ -80,7 +185,17 @@ export async function startDiscussion(payload: {
   mode: "analysis" | "summary" | "rollover" | "macro";
   system_rules: string[];
 }): Promise<DiscussionStartResponse> {
-  return postJson<DiscussionStartResponse>("/v1/discussions/start", payload);
+  if (config.OPENCLAW_TRANSPORT === "cli") {
+    return postCliJson<DiscussionStartResponse>({
+      action: "start_discussion",
+      payload: {
+        discussion_id: randomUUID(),
+        ...payload
+      }
+    });
+  }
+
+  return postHttpJson<DiscussionStartResponse>("/v1/discussions/start", payload);
 }
 
 export async function discussionTurn(
@@ -93,9 +208,24 @@ export async function discussionTurn(
     context?: string;
   }
 ): Promise<DiscussionTurnResponse> {
-  return postJson<DiscussionTurnResponse>(`/v1/discussions/${discussionId}/turn`, payload);
+  if (config.OPENCLAW_TRANSPORT === "cli") {
+    return postCliJson<DiscussionTurnResponse>({
+      action: "discussion_turn",
+      discussion_id: discussionId,
+      payload
+    });
+  }
+
+  return postHttpJson<DiscussionTurnResponse>(`/v1/discussions/${discussionId}/turn`, payload);
 }
 
 export async function finalReport(payload: FinalReportRequest): Promise<FinalReportResponse> {
-  return postJson<FinalReportResponse>("/v1/reports/final", payload);
+  if (config.OPENCLAW_TRANSPORT === "cli") {
+    return postCliJson<FinalReportResponse>({
+      action: "final_report",
+      payload
+    });
+  }
+
+  return postHttpJson<FinalReportResponse>("/v1/reports/final", payload);
 }

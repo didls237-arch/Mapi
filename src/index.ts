@@ -1,4 +1,4 @@
-import {
+﻿import {
   ChannelType,
   ChatInputCommandInteraction,
   Client,
@@ -16,6 +16,7 @@ import {
   handleSummary,
   resumePendingAnalysisJobs
 } from "./discord/handlers.js";
+import { handleTextCommandMessage } from "./discord/textCommands.js";
 import { handleMacroScenarioMessage } from "./services/macroScenarioService.js";
 
 const client = new Client({
@@ -112,11 +113,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
   } catch (error) {
-    const message = `오류: ${error instanceof Error ? error.message : String(error)}`;
+    const replyMessage = `Error: ${error instanceof Error ? error.message : String(error)}`;
     if (interaction.replied || interaction.deferred) {
-      await interaction.followUp({ content: message, ephemeral: true });
+      await interaction.followUp({ content: replyMessage, ephemeral: true });
     } else {
-      await interaction.reply({ content: message, ephemeral: true });
+      await interaction.reply({ content: replyMessage, ephemeral: true });
     }
   }
 });
@@ -124,6 +125,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
 client.on(Events.MessageCreate, async (message) => {
   if (message.author.bot) return;
   if (!message.guildId) return;
+
+  try {
+    const handledAsCommand = await handleTextCommandMessage(client, message);
+    if (handledAsCommand) {
+      return;
+    }
+  } catch (error) {
+    await message.reply(`Command failed: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
 
   const member = message.member;
   if (!member) return;
@@ -140,7 +151,7 @@ client.on(Events.MessageCreate, async (message) => {
       });
     } catch (error) {
       await message.channel.send(
-        `Macro 응답 중 오류가 발생했습니다: ${error instanceof Error ? error.message : String(error)}`
+        `Macro response failed: ${error instanceof Error ? error.message : String(error)}`
       );
     }
     return;
@@ -155,7 +166,7 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     const warning = await message.channel.send(
-      `<@${message.author.id}> 참가자는 Question 채널에서만 메시지를 작성할 수 있습니다.`
+      `<@${message.author.id}> Participants can only post in question channels.`
     );
     setTimeout(() => {
       warning.delete().catch(() => undefined);
