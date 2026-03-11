@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import path from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 import { FinalReportResponse } from "../types.js";
 
@@ -47,6 +48,34 @@ function fontDirsForHost(): string[] {
   return candidates.filter((p) => existsSync(p));
 }
 
+function fontFilesForHost(): string[] {
+  const candidates = [
+    "C:\\Windows\\Fonts\\malgun.ttf",
+    "C:\\Windows\\Fonts\\malgunbd.ttf",
+    "C:\\Windows\\Fonts\\NanumGothic.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansKR-Regular.otf",
+    "/usr/share/fonts/truetype/noto/NotoSansKR-Medium.otf",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJKkr-Regular.otf",
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+    "/usr/local/share/fonts/NotoSansKR-Regular.otf",
+    "/Library/Fonts/Apple SD Gothic Neo.ttc",
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc"
+  ];
+
+  return candidates.filter((p) => existsSync(p));
+}
+
+function defaultFontFamily(fontFiles: string[]): string {
+  const joined = fontFiles.map((file) => path.basename(file).toLowerCase()).join(" ");
+
+  if (joined.includes("malgun")) return "Malgun Gothic";
+  if (joined.includes("apple") || joined.includes("gothicneo")) return "Apple SD Gothic Neo";
+  if (joined.includes("nanum")) return "NanumGothic";
+  if (joined.includes("cjk")) return "Noto Sans CJK KR";
+  return "Noto Sans KR";
+}
+
 export function buildReportSvg(input: {
   ticker: string;
   marketLabel: string;
@@ -69,7 +98,7 @@ export function buildReportSvg(input: {
 <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1800">
   <style>
     text {
-      font-family: "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", "NanumGothic", sans-serif;
+      font-family: "Noto Sans KR", "Noto Sans CJK KR", "Malgun Gothic", "Apple SD Gothic Neo", "NanumGothic", sans-serif;
     }
   </style>
   <defs>
@@ -123,6 +152,8 @@ export function buildReportPng(input: {
 }): Buffer {
   const svg = buildReportSvg(input);
   const fontDirs = fontDirsForHost();
+  const fontFiles = fontFilesForHost();
+  const family = defaultFontFamily(fontFiles);
 
   const resvg = new Resvg(svg, {
     fitTo: {
@@ -130,8 +161,11 @@ export function buildReportPng(input: {
       value: 1400
     },
     font: {
+      loadSystemFonts: true,
+      fontFiles,
       fontDirs,
-      defaultFontFamily: "Noto Sans KR"
+      defaultFontFamily: family,
+      sansSerifFamily: family
     }
   });
 

@@ -14,10 +14,14 @@ export interface DiscussionStartResponse {
   discussion_id: string;
 }
 
+export type ConsensusState = "continue" | "soft_consensus" | "final_consensus";
+
 export interface DiscussionTurnResponse {
   content: string;
   citations?: Array<{ source: string; note?: string }>;
   risk_score?: number;
+  consensus_state?: ConsensusState;
+  consensus_reason?: string;
 }
 
 export interface FinalReportRequest {

@@ -1,17 +1,23 @@
-﻿import {
+import {
   ChannelType,
   Client,
-  ForumChannel,
   Message,
   PermissionsBitField,
   TextChannel,
   ThreadChannel
 } from "discord.js";
+import { PERSONAS } from "../constants.js";
 import { config } from "../config.js";
 import {
   countRunningJobs,
   findRunningJobByTicker
 } from "../repositories/analysisJobRepository.js";
+import {
+  addSystemRule,
+  getPersonaStyles,
+  upsertPersonaStyle,
+  listSystemRules
+} from "../repositories/settingsRepository.js";
 import {
   getSummaryCheckpoint,
   insertAuditLog,
@@ -29,7 +35,7 @@ import {
   collectThreadMessagesSinceCheckpoint,
   formatTimelineTable
 } from "../services/summaryService.js";
-import { AnalysisMarket, MarketScope } from "../types.js";
+import { AnalysisMarket, MarketScope, Persona } from "../types.js";
 
 const runningAnalysis = new Set<string>();
 const analyzeCooldownByUser = new Map<string, number>();
@@ -101,6 +107,23 @@ function scopeByForumChannelId(channelId: string): MarketScope {
   return "macro";
 }
 
+function normalizePersona(input: string): Persona | null {
+  const key = input.trim().toLowerCase();
+  if (["chart", "technical", "tech", "기술", "차트", "기술적", "기술적차트분석가"].includes(key)) {
+    return "기술적 차트 분석가";
+  }
+  if (["analyst", "company", "fundamental", "기업", "애널리스트", "기업애널리스트"].includes(key)) {
+    return "기업 애널리스트";
+  }
+  if (["option", "options", "옵션", "옵션트레이더"].includes(key)) {
+    return "옵션 트레이더";
+  }
+  if (["macro", "매크로", "매크로전문가"].includes(key)) {
+    return "매크로 전문가";
+  }
+  return null;
+}
+
 async function notifyAnalysisFailure(input: {
   client: Client;
   summaryChannel: TextChannel;
@@ -147,7 +170,7 @@ async function runAnalysisInBackground(input: {
   guildId: string;
   market: AnalysisMarket;
   ticker: string;
-  forum: ForumChannel;
+  forum: TextChannel;
   summaryChannel: TextChannel;
 }): Promise<void> {
   activeAnalysisJobs += 1;
@@ -250,13 +273,8 @@ async function handleAnalyzeCommand(client: Client, message: Message, args: stri
   const forum = await client.channels.fetch(marketForumId(market));
   const summaryChannel = await client.channels.fetch(marketSummaryChannelId(market));
 
-  if (
-    !forum ||
-    forum.type !== ChannelType.GuildForum ||
-    !summaryChannel ||
-    summaryChannel.type !== ChannelType.GuildText
-  ) {
-    await message.reply("Forum/Summary channel config is invalid.");
+  if (!forum || forum.type !== ChannelType.GuildText || !summaryChannel || summaryChannel.type !== ChannelType.GuildText) {
+    await message.reply("Analysis/Summary channel config is invalid.");
     return;
   }
 
@@ -272,12 +290,16 @@ async function handleAnalyzeCommand(client: Client, message: Message, args: stri
     guildId: message.guildId ?? "unknown",
     market,
     ticker,
-    forum: forum as ForumChannel,
+    forum: forum as TextChannel,
     summaryChannel: summaryChannel as TextChannel
   });
 }
 
-async function resolveThreadForSummary(client: Client, message: Message, threadId?: string): Promise<ThreadChannel | null> {
+async function resolveThreadForSummary(
+  client: Client,
+  message: Message,
+  threadId?: string
+): Promise<ThreadChannel | null> {
   if (threadId) {
     const channel = await client.channels.fetch(threadId);
     if (!channel || !channel.isThread()) return null;
@@ -375,8 +397,8 @@ async function handleRolloverCommand(client: Client, message: Message, args: str
 
   const thread = target as ThreadChannel;
   const parent = thread.parent;
-  if (!parent || parent.type !== ChannelType.GuildForum) {
-    await message.reply("Rollover only supports forum threads.");
+  if (!parent || parent.type !== ChannelType.GuildText) {
+    await message.reply("Rollover supports only text-channel threads.");
     return;
   }
 
@@ -400,11 +422,11 @@ async function handleRolloverCommand(client: Client, message: Message, args: str
     context: sliced
   });
 
-  const newThread = (await (parent as ForumChannel).threads.create({
+  const starterMessage = await (parent as TextChannel).send(
+    `### Compressed Context\n${compressed.content}\n\nOriginal thread: ${thread.id}`
+  );
+  const newThread = (await starterMessage.startThread({
     name: `${thread.name} | rollover ${new Date().toLocaleDateString("ko-KR")}`,
-    message: {
-      content: `### Compressed Context\n${compressed.content}\n\nOriginal thread: ${thread.id}`
-    },
     autoArchiveDuration: 10080
   })) as ThreadChannel;
 
@@ -431,6 +453,103 @@ async function handleRolloverCommand(client: Client, message: Message, args: str
   await message.reply(`Rollover complete. new_thread=${newThread.id}`);
 }
 
+async function handleStyleCommand(message: Message, args: string[]): Promise<void> {
+  const action = args[0]?.toLowerCase();
+  if (action !== "set") {
+    await message.reply("Usage: !style set <persona> <style>");
+    return;
+  }
+
+  const persona = normalizePersona(args[1] ?? "");
+  const styleText = args.slice(2).join(" ").trim();
+
+  if (!persona || !styleText) {
+    await message.reply("Usage: !style set <persona> <style>");
+    return;
+  }
+
+  await upsertPersonaStyle({
+    guild_id: message.guildId ?? "unknown",
+    persona,
+    style_text: styleText,
+    actor_user_id: message.author.id
+  });
+
+  await insertAuditLog({
+    event_type: "persona_style_upserted",
+    guild_id: message.guildId ?? "unknown",
+    actor_user_id: message.author.id,
+    details: {
+      persona,
+      style_text: styleText,
+      source: "text_command"
+    }
+  });
+
+  await message.reply(`Style saved for ${persona}: ${styleText}`);
+}
+
+async function handleSystemRuleCommand(message: Message, args: string[]): Promise<void> {
+  const action = args[0]?.toLowerCase();
+  if (action !== "add") {
+    await message.reply("Usage: !systemrule add <text>");
+    return;
+  }
+
+  const ruleText = args.slice(1).join(" ").trim();
+  if (!ruleText) {
+    await message.reply("Usage: !systemrule add <text>");
+    return;
+  }
+
+  await addSystemRule({
+    guild_id: message.guildId ?? "unknown",
+    rule_text: ruleText,
+    actor_user_id: message.author.id
+  });
+
+  await insertAuditLog({
+    event_type: "system_rule_added",
+    guild_id: message.guildId ?? "unknown",
+    actor_user_id: message.author.id,
+    details: {
+      rule_text: ruleText,
+      source: "text_command"
+    }
+  });
+
+  await message.reply(`System rule added: ${ruleText}`);
+}
+
+async function handlePersonaCommand(message: Message, args: string[]): Promise<void> {
+  const action = args[0]?.toLowerCase();
+  if (action !== "view") {
+    await message.reply("Usage: !persona view");
+    return;
+  }
+
+  const [styles, rules] = await Promise.all([
+    getPersonaStyles(message.guildId ?? "unknown"),
+    listSystemRules(message.guildId ?? "unknown")
+  ]);
+
+  const styleMap = new Map(styles.map((row) => [row.persona, row.style_text]));
+  const personaLines = PERSONAS.map((persona) => `- ${persona}: ${styleMap.get(persona) ?? "(default)"}`);
+  const ruleLines = rules.length > 0 ? rules.map((row, index) => `${index + 1}. ${row.rule_text}`) : ["(none)"];
+
+  await message.reply(
+    [
+      "## Persona View",
+      "",
+      "### Styles",
+      ...personaLines,
+      "",
+      "### System Rules",
+      ...ruleLines
+    ].join("\n")
+  );
+}
+
 async function handleStatusCommand(message: Message): Promise<void> {
   const statusText =
     `openclaw_transport: ${config.OPENCLAW_TRANSPORT}\n` +
@@ -453,6 +572,9 @@ async function handleHelpCommand(message: Message): Promise<void> {
       "!analyze <kor|ex|coin> <ticker>",
       "!summary <macro|kor|ex|coin> [thread_id]",
       "!rollover <thread_id>",
+      "!style set <persona> <style>",
+      "!systemrule add <text>",
+      "!persona view",
       "!status",
       "!help"
     ].join("\n")
@@ -483,6 +605,21 @@ export async function handleTextCommandMessage(client: Client, message: Message)
     return true;
   }
 
+  if (parsed.name === "style") {
+    await handleStyleCommand(message, parsed.args);
+    return true;
+  }
+
+  if (parsed.name === "systemrule") {
+    await handleSystemRuleCommand(message, parsed.args);
+    return true;
+  }
+
+  if (parsed.name === "persona") {
+    await handlePersonaCommand(message, parsed.args);
+    return true;
+  }
+
   if (parsed.name === "status") {
     await handleStatusCommand(message);
     return true;
@@ -496,5 +633,3 @@ export async function handleTextCommandMessage(client: Client, message: Message)
   await message.reply("Unknown command. Use !help.");
   return true;
 }
-
-

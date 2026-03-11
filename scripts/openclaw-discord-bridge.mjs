@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
 import { spawn } from "node:child_process";
@@ -162,6 +162,35 @@ function extractJsonObject(text) {
   throw new Error("No JSON object found in response text");
 }
 
+function transformDiscussionTurn(text) {
+  try {
+    const parsed = extractJsonObject(text);
+    if (typeof parsed.content === "string" || typeof parsed.consensus_state === "string") {
+      return {
+        content: String(parsed.content || text || "(empty)"),
+        citations: Array.isArray(parsed.citations) ? parsed.citations : [],
+        risk_score: typeof parsed.risk_score === "number" ? parsed.risk_score : 3,
+        consensus_state:
+          parsed.consensus_state === "final_consensus" ||
+          parsed.consensus_state === "soft_consensus" ||
+          parsed.consensus_state === "continue"
+            ? parsed.consensus_state
+            : undefined,
+        consensus_reason:
+          typeof parsed.consensus_reason === "string" ? parsed.consensus_reason : undefined
+      };
+    }
+  } catch {
+    // fall back to plain text
+  }
+
+  return {
+    content: text || "(empty)",
+    citations: [],
+    risk_score: 3
+  };
+}
+
 function transformResponse(action, request, openclawResult) {
   const payload = payloadOf(request);
   const text = extractText(openclawResult);
@@ -174,11 +203,7 @@ function transformResponse(action, request, openclawResult) {
   }
 
   if (action === "discussion_turn") {
-    return {
-      content: text || "(empty)",
-      citations: [],
-      risk_score: 3
-    };
+    return transformDiscussionTurn(text);
   }
 
   if (action === "final_report") {

@@ -1,8 +1,7 @@
-﻿import {
+import {
   ChannelType,
   ChatInputCommandInteraction,
   Client,
-  ForumChannel,
   TextChannel,
   ThreadChannel
 } from "discord.js";
@@ -58,9 +57,9 @@ async function resolveThreadForSummary(
   providedThreadId?: string
 ): Promise<ThreadChannel | null> {
   if (providedThreadId) {
-    const ch = await client.channels.fetch(providedThreadId);
-    if (!ch || !ch.isThread()) return null;
-    return ch;
+    const channel = await client.channels.fetch(providedThreadId);
+    if (!channel || !channel.isThread()) return null;
+    return channel as ThreadChannel;
   }
 
   if (interaction.channel && interaction.channel.isThread()) {
@@ -104,9 +103,9 @@ async function notifyAnalysisFailure(input: {
   errorText: string;
 }): Promise<{ summaryPosted: boolean; dmPosted: boolean }> {
   const baseMessage =
-    `遺꾩꽍 ?묒뾽 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎.\n` +
+    `Analysis failed.\n` +
     `market=${input.market}, ticker=${input.ticker.toUpperCase()}\n` +
-    `?ㅻ쪟: ${input.errorText}`;
+    `error: ${input.errorText}`;
 
   let summaryPosted = false;
   let dmPosted = false;
@@ -122,7 +121,7 @@ async function notifyAnalysisFailure(input: {
     try {
       const actor = await input.client.users.fetch(input.actorUserId);
       await actor.send(
-        `[Discord AI Analysis Bot] ${input.market.toUpperCase()} ${input.ticker.toUpperCase()} 遺꾩꽍 ?ㅽ뙣\n` +
+        `[Discord AI Analysis Bot] ${input.market.toUpperCase()} ${input.ticker.toUpperCase()} failed\n` +
           `${input.errorText}`
       );
       dmPosted = true;
@@ -141,7 +140,7 @@ async function runAnalysisInBackground(input: {
   guildId: string;
   market: AnalysisMarket;
   ticker: string;
-  forum: ForumChannel;
+  forum: TextChannel;
   summaryChannel: TextChannel;
 }): Promise<void> {
   activeAnalysisJobs += 1;
@@ -158,7 +157,6 @@ async function runAnalysisInBackground(input: {
     });
   } catch (error) {
     const errorText = error instanceof Error ? error.message : String(error);
-
     const notifyResult = await notifyAnalysisFailure({
       client: input.client,
       summaryChannel: input.summaryChannel,
@@ -194,17 +192,14 @@ export async function handleAnalyze(
   interaction: ChatInputCommandInteraction
 ): Promise<void> {
   if (!ensureAdmin(interaction)) {
-    await interaction.reply({
-      content: "愿由ъ옄留??ㅽ뻾?????덉뒿?덈떎.",
-      ephemeral: true
-    });
+    await interaction.reply({ content: "Admin only.", ephemeral: true });
     return;
   }
 
   const cooldown = isInCooldown(interaction.user.id);
   if (cooldown.blocked) {
     await interaction.reply({
-      content: `紐낅졊 荑⑤떎??以묒엯?덈떎. ${cooldown.leftSec}珥????ㅼ떆 ?쒕룄?섏꽭??`,
+      content: `Cooldown active. Retry in ${cooldown.leftSec}s.`,
       ephemeral: true
     });
     return;
@@ -215,7 +210,7 @@ export async function handleAnalyze(
 
   if (!isTickerValid(ticker)) {
     await interaction.reply({
-      content: "?곗빱 ?뺤떇???щ컮瑜댁? ?딆뒿?덈떎. (?덉슜: A-Z, 0-9, . _ : / - , 理쒕? 20??",
+      content: "Ticker format is invalid. Allowed: A-Z, 0-9, . _ : / - (max 20 chars)",
       ephemeral: true
     });
     return;
@@ -223,13 +218,13 @@ export async function handleAnalyze(
 
   const lockKey = `${interaction.guildId}:${market}:${ticker}`;
   if (runningAnalysis.has(lockKey)) {
-    await interaction.reply({ content: "?숈씪 ?곗빱 遺꾩꽍???대? 吏꾪뻾 以묒엯?덈떎.", ephemeral: true });
+    await interaction.reply({ content: "This ticker is already being analyzed.", ephemeral: true });
     return;
   }
 
   if (activeAnalysisJobs >= config.ANALYSIS_MAX_CONCURRENCY) {
     await interaction.reply({
-      content: `?숈떆 遺꾩꽍 ?쒕룄(${config.ANALYSIS_MAX_CONCURRENCY})???꾨떖?덉뒿?덈떎. ?좎떆 ???ㅼ떆 ?쒕룄?섏꽭??`,
+      content: `Max concurrency reached (${config.ANALYSIS_MAX_CONCURRENCY}). Try again later.`,
       ephemeral: true
     });
     return;
@@ -238,7 +233,7 @@ export async function handleAnalyze(
   const runningDb = await countRunningJobs(interaction.guildId ?? "unknown");
   if (runningDb >= config.ANALYSIS_MAX_CONCURRENCY) {
     await interaction.reply({
-      content: `DB 湲곗? ?숈떆 遺꾩꽍 ?쒕룄(${config.ANALYSIS_MAX_CONCURRENCY})???꾨떖?덉뒿?덈떎.`,
+      content: `DB concurrency limit reached (${config.ANALYSIS_MAX_CONCURRENCY}).`,
       ephemeral: true
     });
     return;
@@ -251,7 +246,7 @@ export async function handleAnalyze(
   });
   if (existingJob) {
     await interaction.reply({
-      content: `?대? ?ㅽ뻾 以묒씤 ?묒뾽???덉뒿?덈떎. thread_id=${existingJob.discord_thread_id}`,
+      content: `A running job already exists. thread_id=${existingJob.discord_thread_id}`,
       ephemeral: true
     });
     return;
@@ -260,14 +255,9 @@ export async function handleAnalyze(
   const forum = await client.channels.fetch(marketForumId(market));
   const summaryChannel = await client.channels.fetch(marketSummaryChannelId(market));
 
-  if (
-    !forum ||
-    forum.type !== ChannelType.GuildForum ||
-    !summaryChannel ||
-    summaryChannel.type !== ChannelType.GuildText
-  ) {
+  if (!forum || forum.type !== ChannelType.GuildText || !summaryChannel || summaryChannel.type !== ChannelType.GuildText) {
     await interaction.reply({
-      content: "梨꾨꼸 ?ㅼ젙???щ컮瑜댁? ?딆뒿?덈떎. .env??FORUM/SUMMARY 梨꾨꼸 ID瑜??뺤씤?섏꽭??",
+      content: "Analysis/Summary channel config is invalid.",
       ephemeral: true
     });
     return;
@@ -276,9 +266,7 @@ export async function handleAnalyze(
   touchCooldown(interaction.user.id);
 
   await interaction.reply({
-    content:
-      `${market.toUpperCase()} ${ticker} 遺꾩꽍???쒖옉?덉뒿?덈떎. ` +
-      `諛깃렇?쇱슫?쒕줈 吏꾪뻾?섎ŉ ?꾨즺 寃곌낵??Summary 梨꾨꼸??寃뚯떆?⑸땲??`,
+    content: `${market.toUpperCase()} ${ticker} analysis started. Results will be posted to summary.`,
     ephemeral: true
   });
 
@@ -289,7 +277,7 @@ export async function handleAnalyze(
     guildId: interaction.guildId ?? "unknown",
     market,
     ticker,
-    forum: forum as ForumChannel,
+    forum: forum as TextChannel,
     summaryChannel: summaryChannel as TextChannel
   });
 }
@@ -299,7 +287,7 @@ export async function handleSummary(
   interaction: ChatInputCommandInteraction
 ): Promise<void> {
   if (!ensureAdmin(interaction)) {
-    await interaction.reply({ content: "愿由ъ옄留??ㅽ뻾?????덉뒿?덈떎.", ephemeral: true });
+    await interaction.reply({ content: "Admin only.", ephemeral: true });
     return;
   }
 
@@ -309,7 +297,7 @@ export async function handleSummary(
 
   if (!thread) {
     await interaction.reply({
-      content: "???thread瑜?李얠쓣 ???놁뒿?덈떎. thread_id瑜?吏?뺥븯嫄곕굹 thread ?덉뿉???ㅽ뻾?섏꽭??",
+      content: "Target thread not found. Run inside a thread or pass thread_id.",
       ephemeral: true
     });
     return;
@@ -324,26 +312,21 @@ export async function handleSummary(
   );
 
   if (lines.length === 0) {
-    await interaction.editReply("?붿빟???좉퇋 硫붿떆吏媛 ?놁뒿?덈떎.");
+    await interaction.editReply("No new messages to summarize.");
     return;
   }
 
-  const rows = await buildMacroSummaryRows({
-    scope,
-    threadId: thread.id,
-    lines
-  });
-
+  const rows = await buildMacroSummaryRows({ scope, threadId: thread.id, lines });
   const table = formatTimelineTable(rows);
   const summaryCh = await client.channels.fetch(summaryChannelIdByScope(scope));
 
   if (!summaryCh || summaryCh.type !== ChannelType.GuildText) {
-    await interaction.editReply("?붿빟 梨꾨꼸 ?ㅼ젙???щ컮瑜댁? ?딆뒿?덈떎.");
+    await interaction.editReply("Summary channel config is invalid.");
     return;
   }
 
   const msg = await (summaryCh as TextChannel).send(
-    `## ${scope.toUpperCase()} Summary\n` + `Thread: ${thread.id}\n\n` + table
+    `## ${scope.toUpperCase()} Summary\nThread: ${thread.id}\n\n${table}`
   );
 
   await upsertSummaryCheckpoint({
@@ -364,7 +347,7 @@ export async function handleSummary(
     }
   });
 
-  await interaction.editReply(`?붿빟???앹꽦?덉뒿?덈떎. 硫붿떆吏 ID: ${msg.id}`);
+  await interaction.editReply(`Summary generated. message_id=${msg.id}`);
 }
 
 export async function handleRollover(
@@ -372,22 +355,21 @@ export async function handleRollover(
   interaction: ChatInputCommandInteraction
 ): Promise<void> {
   if (!ensureAdmin(interaction)) {
-    await interaction.reply({ content: "愿由ъ옄留??ㅽ뻾?????덉뒿?덈떎.", ephemeral: true });
+    await interaction.reply({ content: "Admin only.", ephemeral: true });
     return;
   }
 
   const threadId = interaction.options.getString("thread_id", true);
   const target = await client.channels.fetch(threadId);
   if (!target || !target.isThread()) {
-    await interaction.reply({ content: "?좏슚??thread_id媛 ?꾨떃?덈떎.", ephemeral: true });
+    await interaction.reply({ content: "Invalid thread_id.", ephemeral: true });
     return;
   }
 
   const thread = target as ThreadChannel;
   const parent = thread.parent;
-
-  if (!parent || parent.type !== ChannelType.GuildForum) {
-    await interaction.reply({ content: "?щ읆 ?ㅻ젅?쒕쭔 濡ㅼ삤踰꾪븷 ???덉뒿?덈떎.", ephemeral: true });
+  if (!parent || parent.type !== ChannelType.GuildText) {
+    await interaction.reply({ content: "Rollover supports only text-channel threads.", ephemeral: true });
     return;
   }
 
@@ -403,25 +385,23 @@ export async function handleRollover(
     thread_id: thread.id,
     mode: "rollover",
     system_rules: [
-      "湲곗〈 留λ씫???껋? ?딄쾶 ?듭떖 ?ъ떎/寃곗젙/由ъ뒪?щ? ?뺤텞?섎씪.",
-      "移?갔??臾멸뎄瑜??ъ슜?섏? 留먮씪."
+      "Compress the key facts, decisions, and risks without losing context.",
+      "Do not use praise or filler."
     ]
   });
 
   const compressed = await discussionTurn(discussion.discussion_id, {
-    prompt: "???ㅻ젅???쒖옉???뺤텞 而⑦뀓?ㅽ듃瑜??묒꽦?섎씪.",
+    prompt: "Write compressed context for a new thread.",
     context: sliced
   });
 
-  const newThreadRaw = await (parent as ForumChannel).threads.create({
+  const starterMessage = await (parent as TextChannel).send(
+    `### Compressed Context\n${compressed.content}\n\nOriginal thread: ${thread.id}`
+  );
+  const newThread = (await starterMessage.startThread({
     name: `${thread.name} | rollover ${new Date().toLocaleDateString("ko-KR")}`,
-    message: {
-      content: "### ?뺤텞 而⑦뀓?ㅽ듃\n" + `${compressed.content}\n\n` + `?먮낯 thread: ${thread.id}`
-    },
     autoArchiveDuration: 10080
-  });
-
-  const newThread = newThreadRaw as ThreadChannel;
+  })) as ThreadChannel;
 
   await upsertThreadState({
     scope,
@@ -442,11 +422,11 @@ export async function handleRollover(
     }
   });
 
-  await interaction.editReply(`濡ㅼ삤踰??꾨즺: ??thread ${newThread.id}`);
+  await interaction.editReply(`Rollover complete. new_thread=${newThread.id}`);
 }
 
 export async function handleStatus(interaction: ChatInputCommandInteraction): Promise<void> {
-  const msg =
+  const message =
     `openclaw_transport: ${config.OPENCLAW_TRANSPORT}\n` +
     `running_analysis_jobs(in-memory): ${runningAnalysis.size}\n` +
     `active_analysis_jobs: ${activeAnalysisJobs}\n` +
@@ -457,7 +437,7 @@ export async function handleStatus(interaction: ChatInputCommandInteraction): Pr
     `rollover_threshold: ${config.ROLLOVER_MESSAGE_THRESHOLD}\n` +
     `openclaw_timeout_ms: ${config.OPENCLAW_TIMEOUT_MS}`;
 
-  await interaction.reply({ content: "```txt\n" + msg + "\n```", ephemeral: true });
+  await interaction.reply({ content: "```txt\n" + message + "\n```", ephemeral: true });
 }
 
 export async function resumePendingAnalysisJobs(client: Client): Promise<void> {
@@ -481,7 +461,7 @@ export async function resumePendingAnalysisJobs(client: Client): Promise<void> {
     if (!threadChannel || !threadChannel.isThread() || !summaryChannel || summaryChannel.type !== ChannelType.GuildText) {
       await markAnalysisJobFailed({
         discord_thread_id: job.discord_thread_id,
-        error: "蹂듦뎄 ?ㅽ뙣: ?ㅻ젅???먮뒗 summary 梨꾨꼸??李얠쓣 ???놁쓬"
+        error: "Resume failed: thread or summary channel missing"
       });
       continue;
     }
@@ -518,7 +498,7 @@ export async function resumePendingAnalysisJobs(client: Client): Promise<void> {
           actorUserId: job.actor_user_id,
           market: job.scope,
           ticker: job.ticker,
-          errorText: `?먮룞 蹂듦뎄 ?묒뾽 ?ㅽ뙣: ${errorText}`
+          errorText: `Resume failed: ${errorText}`
         });
       })
       .finally(() => {
@@ -527,5 +507,3 @@ export async function resumePendingAnalysisJobs(client: Client): Promise<void> {
       });
   }
 }
-
-
